@@ -45,6 +45,12 @@
   function saveNow() { clearTimeout(saveTimer); saveTimer = null; try { localStorage.setItem(KEY, JSON.stringify(S)); } catch { /* storage full or blocked: the page still works for this visit */ } }
   function save() { clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 250); }
   addEventListener("pagehide", saveNow);
+  addEventListener("storage", (e) => {
+    if (e.key !== KEY || !e.newValue) return;
+    clearTimeout(saveTimer); saveTimer = null;
+    try { S = normalize(JSON.parse(e.newValue)); } catch { return; }
+    render();
+  });
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") saveNow(); });
 
   // ---------- helpers ----------
@@ -166,6 +172,12 @@
     $("foot-link").onclick = copyLink;
     $("foot-reset").textContent = C.reset;
     $("foot-reset").onclick = () => { if (confirm(C.resetAsk)) { S = blank(); saveNow(); render(); } };
+    $("foot-mine").textContent = C.link.backToMine;
+    $("foot-mine").onclick = () => {
+      if (!confirm(C.link.backAsk)) return;
+      try { S = normalize(JSON.parse(localStorage.getItem(KEY + "-mine"))); localStorage.removeItem(KEY + "-mine"); } catch { return; }
+      saveNow(); render();
+    };
   }
   function strip() {
     const st = $("strip"); st.textContent = "";
@@ -284,11 +296,11 @@
       full(),
     ];
   };
-  function choice(opts, cur, onpick) {
+  function choice(opts, cur, onpick, keepOnRetap) {
     const wrap = h("div", { class: "choice", role: "group" });
     const draw = (v) => { for (const b of wrap.children) b.setAttribute("aria-pressed", String(b.dataset.v === v)); };
     for (const [v, txt] of opts) wrap.append(h("button", { type: "button", "data-v": v, "aria-pressed": String(cur === v), text: txt,
-      onclick: () => { const nv = wrap.querySelector(`[data-v="${v}"]`).getAttribute("aria-pressed") === "true" ? "" : v; onpick(nv); draw(nv); save(); live(); } }));
+      onclick: () => { const on = wrap.querySelector(`[data-v="${v}"]`).getAttribute("aria-pressed") === "true"; const nv = on && !(keepOnRetap && keepOnRetap()) ? "" : v; onpick(nv); draw(nv); save(); live(); } }));
     wrap.redraw = draw;
     return wrap;
   }
@@ -300,7 +312,7 @@
       h("p", { class: "lede", text: s.lede }),
       ...C.pairQs.map((q, i) => {
         const p = S.pairs[i];
-        const ch = choice([["holds", s.holds], ["shaky", s.shaky], ["breaks", s.breaks]], p.v, (v) => { p.v = v; if (q.money) S.p6manual = true; });
+        const ch = choice([["holds", s.holds], ["shaky", s.shaky], ["breaks", s.breaks]], p.v, (v) => { p.v = v; if (q.money) S.p6manual = true; }, q.money ? () => !S.p6manual : null);
         let hint = null;
         if (q.money) {
           hint = h("p", { class: "small note" });
@@ -414,7 +426,6 @@
 
   screens.rebuild = () => {
     const s = C.rebuild;
-    if (!S.versions.length) { S.versions.push({ ...S.blocks }); save(); }
     const tied = tiedBlocks();
     const editor = (id) => {
       const chip = h("span", { class: "chip", text: s.changed });
@@ -422,13 +433,17 @@
       const upd = () => {
         const c = changedSinceV1(id);
         chip.classList.toggle("hidden", !c);
-        was.textContent = s.was + " " + ((S.versions[0][id] || "").trim() || C.handin.empty);
+        was.textContent = s.was + " " + (((S.versions[0] || {})[id] || "").trim() || C.handin.empty);
         was.classList.toggle("hidden", !c);
       };
       upd(); liveHooks.push(upd);
       return h("div", { class: "edit" + (tied.includes(id) ? " tied" : ""), id: "edit-" + id },
         h("div", { class: "h" }, h("b", { text: B[id].nick }), h("span", { class: "tag", text: B[id].name }), chip),
-        input({ rows: 2, value: S.blocks[id], "aria-label": B[id].nick + ", " + B[id].name }, (v) => (S.blocks[id] = v)), was);
+        input({ rows: 2, value: S.blocks[id], "aria-label": B[id].nick + ", " + B[id].name }, (v) => {
+          // Version 1 is the canvas as it stood before the first rebuild edit (S.blocks still holds the old text here).
+          if (!S.versions.length) S.versions.push({ ...S.blocks });
+          S.blocks[id] = v;
+        }), was);
     };
     const bp = bpItem();
     const lockBox = h("div", { class: "row" });
@@ -541,7 +556,10 @@
     history.replaceState(null, "", location.pathname + location.search);
     let incoming;
     try { incoming = normalize(JSON.parse(b64urlDecode(m[1]))); } catch { return; }
-    const take = () => { S = incoming; saveNow(); render(); };
+    const take = () => {
+      if (hasWork(S) && JSON.stringify(S) !== JSON.stringify(incoming)) { try { localStorage.setItem(KEY + "-mine", JSON.stringify(S)); } catch { /* no room for the backup */ } }
+      S = incoming; saveNow(); render();
+    };
     if (!hasWork(S) || JSON.stringify(S) === JSON.stringify(incoming)) return take();
     const md = $("modal");
     md.replaceChildren(h("div", { class: "box", role: "dialog", "aria-modal": "true", "aria-labelledby": "md-h" },
@@ -559,6 +577,7 @@
     const main = $("main");
     main.replaceChildren(h("section", { class: "screen", id: "screen-" + S.screen + (S.screen === "break" ? "-" + S.bstep : "") }, screens[S.screen]()));
     rail(); strip();
+    $("foot-mine").classList.toggle("hidden", !localStorage.getItem(KEY + "-mine"));
     document.title = C.title + " · ENTP 3000";
   }
   chrome();

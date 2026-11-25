@@ -252,9 +252,11 @@ window.CONTENT = {
     copied: "Link copied. Open it on another device, or send it to a Board-mate.",
     fail: "Copy this link:",
     askH: "This link has a canvas in it.",
-    askP: "You already have one on this phone. Which one do you want?",
+    askP: "You already have one on this phone. Which one do you want? If you use the link, yours waits behind a \"Back to my canvas\" button.",
     useLink: "Use the one in the link",
     keepMine: "Keep mine",
+    backToMine: "Back to my canvas",
+    backAsk: "Go back to your own canvas? The one from the link leaves this phone.",
     tooBig: "This link is long. Some apps cut long links. If it breaks, use a laptop.",
   },
 

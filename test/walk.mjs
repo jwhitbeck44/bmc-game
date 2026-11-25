@@ -195,6 +195,11 @@ for (const [key, vp, scale, scheme, shots] of [
     ok(got.name === r.st.name && JSON.stringify(got.blocks) === JSON.stringify(r.st.blocks) && got.versions.length === r.st.versions.length, key + ": link did not carry the canvas");
     ok(!(await p.evaluate(() => location.hash)), key + ": hash not cleared after reading the link");
     results[key + "-link-length"] = link.length;
+    ok(await p.isVisible("#foot-mine"), key + ": no Back to my canvas button after taking a link");
+    p.on("dialog", (dlg) => dlg.accept());
+    await p.click("#foot-mine");
+    ok((await p.evaluate(() => window.__bbr.state().name)) === "Someone else's thing", key + ": Back to my canvas did not restore the receiver's canvas");
+    ok(!(await p.isVisible("#foot-mine")), key + ": Back to my canvas button still showing after restore");
     await ctx2.close();
   }
   await r.ctx.close();
@@ -240,6 +245,49 @@ for (const [key, vp, scale, scheme, shots] of [
   await page.goto(PAGE);
   ok(await page.isVisible(".alertnote"), "no-cracks nudge missing");
   await page.screenshot({ path: fsPath(new URL("breakpoint-no-cracks.png", outDir)), fullPage: true });
+  await ctx.close();
+}
+
+// ---- opening Rebuild early must not freeze a half-built version 1 ----
+{
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await ctx.newPage();
+  page.on("pageerror", (e) => problems.push("early-rebuild pageerror: " + e.message));
+  await page.goto(PAGE);
+  await page.fill("#v-name", "Early peek"); await page.click("#go-build");
+  await page.fill("#block-text", "Tribe text"); await page.click("#block-next");
+  await page.click("nav.rail >> text=3 Rebuild"); await page.waitForSelector("#what");
+  await page.click("nav.rail >> text=1 Build");
+  // fill every block from the Round 1 screen
+  for (const id of ["cs", "vp", "ch", "cr", "rs", "kr", "ka", "kp", "co"]) {
+    await page.evaluate((id) => { const s = window.__bbr.state(); s.screen = "build"; s.bi = ["cs", "vp", "ch", "cr", "rs", "kr", "ka", "kp", "co"].indexOf(id); }, id);
+    await page.click("nav.rail >> text=1 Build");
+    await page.fill("#block-text", "Block " + id);
+  }
+  await page.click("nav.rail >> text=Hand in");
+  const stamp = await page.textContent("#stamp");
+  const gold = await page.locator(".full .cell.changed").count();
+  ok(/1/.test(stamp) && gold === 0, `early rebuild peek: hand-in shows "${stamp}" with ${gold} gold blocks (want Version 1, none)`);
+  // pair 6: re-tapping the auto answer keeps it
+  await page.click("nav.rail >> text=2 Break"); await page.click(".subnav >> text=Money");
+  for (const [k, v] of Object.entries({ price: "10", qty: "100", cost: "100", pay: "100" })) await page.fill("#m-" + k, v);
+  await page.click(".subnav >> text=Questions");
+  await page.click('#pair-5 button[data-v="holds"]');
+  ok((await page.evaluate(() => window.__bbr.state().pairs[5].v)) === "holds", "pair 6: re-tapping the auto answer cleared it");
+  await ctx.close();
+}
+
+// ---- two tabs: the old tab must not write stale work over the new one ----
+{
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const a = await ctx.newPage();
+  await a.goto(PAGE); await a.fill("#v-name", "Old tab"); await a.waitForTimeout(400);
+  const b = await ctx.newPage();
+  await b.goto(PAGE); await b.fill("#v-name", "New tab work"); await b.waitForTimeout(400);
+  await a.close({ runBeforeUnload: true });
+  await b.reload();
+  const name = await b.inputValue("#v-name");
+  ok(name === "New tab work", `two tabs: closing the old tab overwrote the new one (name is "${name}")`);
   await ctx.close();
 }
 
