@@ -1,0 +1,6 @@
+{
+  "name": "bbr-tests",
+  "private": true,
+  "type": "module",
+  "dependencies": { "playwright-core": "^1.55.0", "qrcode": "^1.5.4", "jsqr": "^1.4.0", "pngjs": "^7.0.0" }
+}
